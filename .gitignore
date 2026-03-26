@@ -4,3 +4,4 @@ nodes/node5001/*
 nodes/node5002/*
 nodes/node5003/*
 *.txt
+!test.txt
