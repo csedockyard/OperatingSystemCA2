@@ -2,14 +2,12 @@ import socket
 import json
 import os
 
-REPLICATION_FACTOR = 2
-
 MASTER_HOST = '127.0.0.1'
 MASTER_PORT = 5000
 
 NODES = [5001, 5002, 5003]
-
 CHUNK_SIZE = 1024
+REPLICATION_FACTOR = 2
 
 
 def split_file(filepath):
@@ -33,28 +31,25 @@ def send_to_node(port, chunk_name, data):
     header = f"STORE:{chunk_name:<44}".encode()
     s.send(header + data)
 
-    print(s.recv(1024))
+    res = s.recv(1024)
     s.close()
+    return res
 
 
-def upload(filepath):
+def upload_file(filepath):
     chunks = split_file(filepath)
-
     mapping = {}
-    
+
     for i, (name, data) in enumerate(chunks):
         assigned_nodes = []
 
-    for r in range(REPLICATION_FACTOR):
-        node_port = NODES[(i + r) % len(NODES)]
-        send_to_node(node_port, name, data)
-        assigned_nodes.append(node_port)
+        for r in range(REPLICATION_FACTOR):
+            node_port = NODES[(i + r) % len(NODES)]
+            send_to_node(node_port, name, data)
+            assigned_nodes.append(node_port)
 
-        print(f"{name} stored in node{node_port}")
+        mapping[name] = assigned_nodes
 
-    mapping[name] = assigned_nodes
-
-    # send metadata to master
     s = socket.socket()
     s.connect((MASTER_HOST, MASTER_PORT))
 
@@ -65,85 +60,58 @@ def upload(filepath):
     }
 
     s.send(json.dumps(request).encode())
-    print(s.recv(1024))
+    res = s.recv(4096)
     s.close()
+
+    return res.decode()
 
 
 def get_chunk_from_node(port, chunk_name):
     try:
         s = socket.socket()
-        s.settimeout(2)  # fail fast
+        s.settimeout(3)
         s.connect(('127.0.0.1', port))
 
-        header = f"GET:::{chunk_name}".encode()
-        s.send(header)
+        s.send(f"GET:::{chunk_name}".encode())
 
-        data = s.recv(4096)
+        data = b""
+        while True:
+            packet = s.recv(4096)
+            if not packet:
+                break
+            data += packet
+
         s.close()
-
-        if data == b"NOTFOUND":
-            return None
-        
-        return data
-
+        return data if data else None
     except:
-        return None  # node failed or unreachable
+        return None
 
-def download(filename):
-    # ask master for chunk locations
+
+def download_file(filename):
     s = socket.socket()
     s.connect((MASTER_HOST, MASTER_PORT))
 
-    request = {
+    s.send(json.dumps({
         "type": "download",
         "filename": filename
-    }
+    }).encode())
 
-    s.send(json.dumps(request).encode())
     response = json.loads(s.recv(4096).decode())
     s.close()
 
     if response["status"] != "ok":
-        print("File not found")
-        return
-
-    chunks = response["chunks"]
+        return "File not found"
 
     file_data = b""
 
-    for chunk_name in sorted(chunks.keys()):
-        node_list = chunks[chunk_name]
-
-        chunk_data = None
-
-        for node in node_list:
-            chunk_data = get_chunk_from_node(node, chunk_name)
-
-            if chunk_data:
-                print(f"{chunk_name} retrieved from node{node}")
+    for chunk in sorted(response["chunks"].keys()):
+        for node in response["chunks"][chunk]:
+            data = get_chunk_from_node(node, chunk)
+            if data:
+                file_data += data
                 break
-            else:
-                print(f"node{node} failed for {chunk_name}")
-
-        if chunk_data is None:
-            print(f"FAILED to retrieve {chunk_name}")
-            return
-
-        file_data += chunk_data
 
     with open("downloaded_" + filename, "wb") as f:
         f.write(file_data)
 
-    print("File reconstructed successfully!")
-
-
-if __name__ == "__main__":
-    choice = input("1. Upload\n2. Download\nChoose: ")
-
-    if choice == "1":
-        filepath = input("Enter file path: ")
-        upload(filepath)
-
-    elif choice == "2":
-        filename = input("Enter filename: ")
-        download(filename)
+    return "Download complete"

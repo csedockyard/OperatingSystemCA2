@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>DFS Neural Control Panel</title>
+
+<style>
+body {
+    background: radial-gradient(circle at top, #020617, #000);
+    color: #00ffe1;
+    font-family: 'Consolas', monospace;
+    text-align: center;
+}
+
+h1 {
+    text-shadow: 0 0 10px #00ffe1;
+}
+
+.box {
+    background: rgba(0, 255, 225, 0.05);
+    border: 1px solid rgba(0,255,225,0.2);
+    box-shadow: 0 0 20px rgba(0,255,225,0.2);
+    padding: 20px;
+    margin: 20px auto;
+    width: 460px;
+    border-radius: 12px;
+}
+
+button {
+    background: #00ffe1;
+    color: black;
+    padding: 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: none;
+}
+
+button:hover {
+    box-shadow: 0 0 10px #00ffe1;
+}
+
+input {
+    padding: 8px;
+    margin: 10px;
+    border-radius: 6px;
+}
+
+#logs {
+    height: 250px;
+    overflow-y: auto;
+    background: black;
+    padding: 10px;
+    text-align: left;
+}
+
+.node {
+    margin: 5px;
+}
+</style>
+
+</head>
+
+<body>
+
+<h1>DFS Control Panel</h1>
+
+<div class="box">
+    <input type="file" id="file">
+    <button onclick="upload()">UPLOAD</button>
+</div>
+
+<div class="box">
+    <input type="text" id="filename" placeholder="test.txt">
+    <button onclick="download()">DOWNLOAD</button>
+</div>
+
+<div class="box">
+    <h3>NODE CONTROL</h3>
+    <div id="controls"></div>
+</div>
+
+<div class="box">
+    <h3>NODE GRID</h3>
+    <div id="nodes"></div>
+</div>
+
+<div class="box">
+    <h3>SYSTEM FEED</h3>
+    <div id="logs"></div>
+</div>
+
+<script>
+function upload() {
+    let f = document.getElementById("file").files[0];
+    let fd = new FormData();
+    fd.append("file", f);
+
+    fetch("/upload", {method:"POST", body:fd});
+}
+
+function download() {
+    let name = document.getElementById("filename").value;
+
+    fetch("/download", {
+        method:"POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({filename:name})
+    })
+    .then(res => res.blob())
+    .then(blob => {
+        let a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+    });
+}
+
+function killNode(node) {
+    fetch("/kill", {
+        method:"POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({node})
+    });
+}
+
+function fetchLogs() {
+    fetch("/logs")
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById("logs").innerHTML =
+            data.logs.map(l => `<div>➤ ${l}</div>`).join("");
+    });
+}
+
+function fetchNodes() {
+    fetch("/nodes")
+    .then(res => res.json())
+    .then(data => {
+        let active = data.nodes.active;
+        let all = data.nodes.all;
+
+        let statusHTML = "";
+        let controlHTML = "";
+
+        all.forEach(n => {
+
+            // Status
+            if (active.includes(n)) {
+                statusHTML += `<div class="node">🟢 NODE ${n}</div>`;
+            } else {
+                statusHTML += `<div class="node">🔴 NODE ${n}</div>`;
+            }
+
+            // Control buttons (dynamic)
+            controlHTML += `
+                <button onclick="killNode(${n})">
+                    TERMINATE ${n}
+                </button>
+            `;
+        });
+
+        document.getElementById("nodes").innerHTML = statusHTML;
+        document.getElementById("controls").innerHTML = controlHTML;
+    });
+}
+
+setInterval(fetchLogs,1000);
+setInterval(fetchNodes,1000);
+</script>
+
+</body>
+</html>
