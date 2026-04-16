@@ -3,6 +3,7 @@ import socket
 import json
 import os
 import sys
+import threading
 
 # FIX PATH
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -30,6 +31,8 @@ def home():
     return render_template("index.html")
 
 
+import threading # Ensure this is imported at the top
+
 @app.route("/upload", methods=["POST"])
 def upload():
     file = request.files["file"]
@@ -38,9 +41,10 @@ def upload():
     path = os.path.join("temp", file.filename)
     file.save(path)
 
-    upload_file(path)
+    # Push upload to background thread so UI returns immediately
+    threading.Thread(target=upload_file, args=(path,), daemon=True).start()
 
-    return jsonify({"msg": "Uploaded"})
+    return jsonify({"msg": "Upload initiated in background. Check cluster logs."})
 
 
 @app.route("/download", methods=["POST"])
@@ -80,6 +84,20 @@ def nodes():
     res = send_to_master({"type": "get_nodes"})
     return jsonify({"nodes": json.loads(res)})
 
+
+@app.route("/stats")
+def stats():
+    res = send_to_master({"type": "get_stats"})
+    return jsonify({"stats": json.loads(res)})
+
+@app.route("/delete", methods=["POST"])
+def delete_file():
+    filename = request.json["filename"]
+    send_to_master({
+        "type": "delete",
+        "filename": filename
+    })
+    return jsonify({"msg": f"Deleted {filename}"})
 
 if __name__ == "__main__":
     app.run(port=3000, debug=True)

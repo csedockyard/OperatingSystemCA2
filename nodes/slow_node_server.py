@@ -95,7 +95,7 @@ def send_heartbeat():
         except:
             print(f"[NODE {PORT}] heartbeat failed")
 
-        time.sleep(2)  # every 2 sec
+        time.sleep(4)  # every 2 sec
 
 if __name__ == "__main__":
     start_node()

@@ -1,171 +1,274 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>DFS Neural Control Panel</title>
-
-<style>
-body {
-    background: radial-gradient(circle at top, #020617, #000);
-    color: #00ffe1;
-    font-family: 'Consolas', monospace;
-    text-align: center;
-}
-
-h1 {
-    text-shadow: 0 0 10px #00ffe1;
-}
-
-.box {
-    background: rgba(0, 255, 225, 0.05);
-    border: 1px solid rgba(0,255,225,0.2);
-    box-shadow: 0 0 20px rgba(0,255,225,0.2);
-    padding: 20px;
-    margin: 20px auto;
-    width: 460px;
-    border-radius: 12px;
-}
-
-button {
-    background: #00ffe1;
-    color: black;
-    padding: 10px;
-    border-radius: 8px;
-    cursor: pointer;
-    border: none;
-}
-
-button:hover {
-    box-shadow: 0 0 10px #00ffe1;
-}
-
-input {
-    padding: 8px;
-    margin: 10px;
-    border-radius: 6px;
-}
-
-#logs {
-    height: 250px;
-    overflow-y: auto;
-    background: black;
-    padding: 10px;
-    text-align: left;
-}
-
-.node {
-    margin: 5px;
-}
-</style>
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DFS Neural Control | Fault Tolerant Distributed Storage</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
 </head>
-
 <body>
 
-<h1>DFS Control Panel</h1>
+    <h1>NEURAL STORAGE CLUSTER</h1>
 
-<div class="box">
-    <input type="file" id="file">
-    <button onclick="upload()">UPLOAD</button>
-</div>
+    <div class="container">
+        
+        <div class="glass-panel">
+            <h3>⚡ NODE TOPOLOGY</h3>
+            <div id="node-grid" class="node-grid">
+                </div>
+            
+            <hr style="margin: 2rem 0; border-color: rgba(255,255,255,0.05);">
+            
+            <h3>🛠️ COMMAND CENTER</h3>
+            <div id="node-controls" class="control-group">
+                </div>
+        </div>
 
-<div class="box">
-    <input type="text" id="filename" placeholder="test.txt">
-    <button onclick="download()">DOWNLOAD</button>
-</div>
+        <div class="glass-panel">
+            <h3>📂 CLUSTER FILES</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>FILENAME</th>
+                        <th>CHUNKS</th>
+                        <th>REPLICATION</th>
+                    </tr>
+                </thead>
+                <tbody id="file-list">
+                    </tbody>
+            </table>
 
-<div class="box">
-    <h3>NODE CONTROL</h3>
-    <div id="controls"></div>
-</div>
+            <hr style="margin: 2rem 0; border-color: rgba(255,255,255,0.05);">
 
-<div class="box">
-    <h3>NODE GRID</h3>
-    <div id="nodes"></div>
-</div>
+            <h3>📤 INJECT DATA</h3>
+            <div class="control-group">
+                <input type="file" id="file-input">
+                <button class="btn" onclick="upload()">Background Upload</button>
+            </div>
 
-<div class="box">
-    <h3>SYSTEM FEED</h3>
-    <div id="logs"></div>
-</div>
+            <h3 style="margin-top: 2rem;">📥 RETRIEVE DATA</h3>
+            <div class="control-group">
+                <input type="text" id="dl-filename" placeholder="Enter filename.ext">
+                <button class="btn" onclick="download()">Download Protocol</button>
+            </div>
+        </div>
 
-<script>
-function upload() {
-    let f = document.getElementById("file").files[0];
-    let fd = new FormData();
-    fd.append("file", f);
+        <div class="glass-panel">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="margin-bottom: 0;">🖥️ SYSTEM FEED</h3>
+                <button class="btn btn-danger" style="padding: 0.2rem 0.5rem; font-size: 0.6rem; letter-spacing: 1px;" onclick="clearTerminal()">PURGE FEED</button>
+            </div>
+            <div id="terminal" class="terminal">
+                </div>
+            
+            <h3 style="margin-top: 2rem;">🛡️ CLUSTER HEALTH</h3>
+            <div style="font-size: 0.9rem; color: #94a3b8;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.8rem;">
+                    <span>Replication Factor</span>
+                    <span style="color: var(--primary); font-weight: bold;">2.0x</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.8rem;">
+                    <span>Active Quorum</span>
+                    <span id="active-count" style="color: var(--success); font-weight: bold;">0</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.8rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.8rem;">
+                    <span>AI Predictor Agent</span>
+                    <span class="sys-badge badge-active">ONLINE</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                    <span>Integrity Scrubber</span>
+                    <span class="sys-badge badge-active">RUNNING</span>
+                </div>
+            </div>
+        </div>
 
-    fetch("/upload", {method:"POST", body:fd});
-}
+    </div>
 
-function download() {
-    let name = document.getElementById("filename").value;
+    <script>
+        let lastLogCount = 0;
 
-    fetch("/download", {
-        method:"POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({filename:name})
-    })
-    .then(res => res.blob())
-    .then(blob => {
-        let a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = name;
-        a.click();
-    });
-}
+        function upload() {
+            let fileInput = document.getElementById("file-input");
+            let f = fileInput.files[0];
+            if(!f) return alert("Select file");
+            let fd = new FormData();
+            fd.append("file", f);
 
-function killNode(node) {
-    fetch("/kill", {
-        method:"POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({node})
-    });
-}
+            // Decoupled upload - returns instantly while background thread works
+            fetch("/upload", {method:"POST", body:fd})
+            .then(res => res.json())
+            .then(data => {
+                showLog(`[ASYNC] UPLOAD DELEGATED TO THREAD: ${f.name}`);
+                showLog(`> ${data.msg}`);
+                fileInput.value = ""; // Clear input
+            });
+        }
 
-function fetchLogs() {
-    fetch("/logs")
-    .then(res => res.json())
-    .then(data => {
-        document.getElementById("logs").innerHTML =
-            data.logs.map(l => `<div>➤ ${l}</div>`).join("");
-    });
-}
+        function download() {
+            let name = document.getElementById("dl-filename").value;
+            if(!name) return alert("Enter filename");
 
-function fetchNodes() {
-    fetch("/nodes")
-    .then(res => res.json())
-    .then(data => {
-        let active = data.nodes.active;
-        let all = data.nodes.all;
+            showLog("INITIATING RETRIEVAL: " + name);
+            fetch("/download", {
+                method:"POST",
+                headers: {"Content-Type":"application/json"},
+                body: JSON.stringify({filename:name})
+            })
+            .then(res => res.blob())
+            .then(blob => {
+                let a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = name;
+                a.click();
+                showLog("DATA RECONSTRUCTED: " + name);
+                document.getElementById("dl-filename").value = "";
+            });
+        }
 
-        let statusHTML = "";
-        let controlHTML = "";
+        function killNode(node) {
+            fetch("/kill", {
+                method:"POST",
+                headers: {"Content-Type":"application/json"},
+                body: JSON.stringify({node})
+            });
+            showLog("TERMINATION SIGNAL SENT: NODE_" + node);
+        }
 
-        all.forEach(n => {
-
-            // Status
-            if (active.includes(n)) {
-                statusHTML += `<div class="node">🟢 NODE ${n}</div>`;
-            } else {
-                statusHTML += `<div class="node">🔴 NODE ${n}</div>`;
+        function showLog(msg) {
+            const term = document.getElementById("terminal");
+            const div = document.createElement("div");
+            div.className = "terminal-line";
+            
+            // Default color is inherited (green). Override based on keywords:
+            if (msg.includes("TERMINATION") || msg.includes("fault") || msg.includes("❌")) {
+                div.style.color = "var(--danger)"; // Red
+            } else if (msg.includes("RECONSTRUCTING") || msg.includes("REPLICATED") || msg.includes("⚠️")) {
+                div.style.color = "var(--warning)"; // Yellow
+            } else if (msg.includes("UPLOAD") || msg.includes("injected") || msg.includes("🚀")) {
+                div.style.color = "var(--primary)"; // Blue
+            } else if (msg.includes("purged")) {
+                div.style.color = "var(--accent)"; // Pink/Purple
             }
 
-            // Control buttons (dynamic)
-            controlHTML += `
-                <button onclick="killNode(${n})">
-                    TERMINATE ${n}
-                </button>
-            `;
-        });
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] > ${msg}`;
+            term.appendChild(div);
+            term.scrollTop = term.scrollHeight;
+        }
+         
+        function clearTerminal() {
+            document.getElementById("terminal").innerHTML = "";
+            showLog("TERMINAL FEED PURGED BY OPERATOR");
+        }
 
-        document.getElementById("nodes").innerHTML = statusHTML;
-        document.getElementById("controls").innerHTML = controlHTML;
-    });
-}
+        function updateUI() {
+            // Logs
+            // Logs
+            fetch("/logs")
+            .then(res => res.json())
+            .then(data => {
+                // Auto-Reset: If backend has fewer logs than we tracked, the master was rebooted!
+                if(data.logs.length < lastLogCount) {
+                    document.getElementById("terminal").innerHTML = "";
+                    lastLogCount = 0; // Reset the tracker
+                    showLog("MASTER REBOOT DETECTED. SYNCHRONIZING NEW FEED...");
+                }
 
-setInterval(fetchLogs,1000);
-setInterval(fetchNodes,1000);
-</script>
+                if(data.logs.length > lastLogCount) {
+                    for(let i = lastLogCount; i < data.logs.length; i++) {
+                        showLog(data.logs[i]);
+                    }
+                    lastLogCount = data.logs.length;
+                }
+            })
+            .catch(err => {
+                // Optional: If the master goes completely offline, it will fail to fetch.
+                // You can silently ignore it until it comes back up.
+            });
 
+            // Nodes
+            fetch("/nodes")
+            .then(res => res.json())
+            .then(data => {
+                const grid = document.getElementById("node-grid");
+                const controls = document.getElementById("node-controls");
+                const activeCount = document.getElementById("active-count");
+                
+                let gridHTML = "";
+                let ctrlHTML = "";
+                
+                data.nodes.all.forEach(n => {
+                    // Logic to handle the new degraded state
+                    const isDegraded = data.nodes.degraded && data.nodes.degraded.includes(n);
+                    const isOnline = data.nodes.active.includes(n);
+                    
+                    let stateClass = 'offline';
+                    let stateText = 'LOST';
+                    
+                    if (isDegraded) {
+                        stateClass = 'degraded';
+                        stateText = 'DEGRADED ⚠️';
+                    } else if (isOnline) {
+                        stateClass = 'online';
+                        stateText = 'STABLE';
+                    }
+
+                    gridHTML += `
+                        <div class="node-card ${stateClass}">
+                            <div class="status-dot"></div>
+                            <div style="font-weight: 800; font-size: 0.8rem;">UNIT ${n}</div>
+                            <div style="font-size: 0.6rem; margin-top: 0.2rem; color: var(--${stateClass === 'degraded' ? 'warning' : (stateClass === 'online' ? 'success' : 'danger')});">${stateText}</div>
+                        </div>
+                    `;
+                    
+                    if(isOnline || isDegraded) {
+                        ctrlHTML += `<button class="btn btn-danger" onclick="killNode(${n})">Kill Node ${n}</button>`;
+                    }
+                });
+                
+                grid.innerHTML = gridHTML;
+                controls.innerHTML = ctrlHTML || "<p style='font-size:0.8rem; color:#64748b;'>No active units</p>";
+                activeCount.innerText = data.nodes.active.length;
+            });
+
+            // Stats (Files)
+            fetch("/stats")
+            .then(res => res.json())
+            .then(data => {
+                const list = document.getElementById("file-list");
+                list.innerHTML = data.stats.map(f => `
+                    <tr>
+                        <td>${f.name}</td>
+                        <td>${f.chunks}</td>
+                        <td>
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <div style="flex-grow: 1;">
+                                    <div class="health-bar">
+                                        <div class="health-fill" style="width: ${f.health}%"></div>
+                                    </div>
+                                    <span style="font-size: 0.6rem; color: #94a3b8;">${f.health}% HEALTH</span>
+                                </div>
+                                <button class="btn btn-danger" style="padding: 0.2rem 0.5rem; font-size: 0.6rem;" onclick="deleteFile('${f.name}')">DEL</button>
+                            </div>
+                        </td>
+                    </tr>
+                `).join("");
+            });
+        }
+
+        function deleteFile(filename) {
+            if(confirm(`Are you sure you want to purge ${filename} from the cluster?`)) {
+                fetch("/delete", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({filename: filename})
+                });
+                showLog(`🗑️ PURGE COMMAND INITIATED: ${filename}`);
+            }
+        }
+
+        setInterval(updateUI, 2000);
+        updateUI();
+    </script>
 </body>
 </html>
