@@ -7,7 +7,7 @@
     --text: #f8fafc;
     --terminal-bg: #000000;
     --success: #22c55e;
-    --warning: #f59e0b; /* New: Warning color for degraded nodes */
+    --warning: #f59e0b;
     --danger: #ef4444;
 }
 
@@ -71,7 +71,6 @@ h3 {
     gap: 0.5rem;
 }
 
-/* File Upload & Controls */
 .control-group {
     display: flex;
     flex-direction: column;
@@ -110,7 +109,6 @@ input[type="file"], input[type="text"] {
     width: 100%;
 }
 
-/* Node Grid */
 .node-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
@@ -129,7 +127,7 @@ input[type="file"], input[type="text"] {
 }
 
 .node-card.online { border-color: var(--success); }
-.node-card.degraded { border-color: var(--warning); } /* New: Degraded styling */
+.node-card.degraded { border-color: var(--warning); } 
 .node-card.offline { border-color: var(--danger); opacity: 0.6; }
 
 .status-dot {
@@ -140,7 +138,7 @@ input[type="file"], input[type="text"] {
 }
 
 .online .status-dot { background: var(--success); box-shadow: 0 0 10px var(--success); animation: pulse 2s infinite; }
-.degraded .status-dot { background: var(--warning); box-shadow: 0 0 10px var(--warning); animation: pulse-fast 1s infinite; } /* New: Fast pulse for warning */
+.degraded .status-dot { background: var(--warning); box-shadow: 0 0 10px var(--warning); animation: pulse-fast 1s infinite; } 
 .offline .status-dot { background: var(--danger); }
 
 @keyframes pulse {
@@ -155,7 +153,6 @@ input[type="file"], input[type="text"] {
     100% { transform: scale(1); opacity: 1; }
 }
 
-/* File Table */
 table {
     width: 100%;
     border-collapse: collapse;
@@ -188,7 +185,6 @@ td {
     transition: width 0.5s ease;
 }
 
-/* System Tags & Badges */
 .sys-badge {
     display: inline-block;
     padding: 0.2rem 0.5rem;
@@ -200,7 +196,6 @@ td {
 }
 .badge-active { color: var(--success); background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.2); }
 
-/* Terminal */
 .terminal {
     background: var(--terminal-bg);
     border-radius: 1rem;
@@ -231,3 +226,48 @@ td {
     background: rgba(255, 255, 255, 0.1);
     border-radius: 3px;
 }
+
+.progress-container {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--primary);
+    border-radius: 0.75rem;
+    display: none; 
+    align-items: center;
+    gap: 1rem;
+}
+
+.progress-container.active {
+    display: flex;
+    animation: slideDown 0.3s ease-out;
+}
+
+.progress-spinner {
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(56, 189, 248, 0.3);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.progress-text {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--primary);
+    letter-spacing: 1px;
+}
+
+.progress-container.success {
+    border-color: var(--success);
+}
+.progress-container.success .progress-spinner {
+    display: none; 
+}
+.progress-container.success .progress-text {
+    color: var(--success);
+}
+
+@keyframes spin { 100% { transform: rotate(360deg); } }
+@keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }

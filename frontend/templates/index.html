@@ -46,6 +46,11 @@
                 <input type="file" id="file-input">
                 <button class="btn" onclick="upload()">Background Upload</button>
             </div>
+            
+            <div id="upload-progress" class="progress-container">
+                <div class="progress-spinner"></div>
+                <div id="progress-text" class="progress-text">DISTRIBUTING CHUNKS...</div>
+            </div>
 
             <h3 style="margin-top: 2rem;">📥 RETRIEVE DATA</h3>
             <div class="control-group">
@@ -66,7 +71,7 @@
             <div style="font-size: 0.9rem; color: #94a3b8;">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 0.8rem;">
                     <span>Replication Factor</span>
-                    <span style="color: var(--primary); font-weight: bold;">2.0x</span>
+                    <span id="cluster-rf" style="color: var(--primary); font-weight: bold;">0.0x</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; margin-bottom: 0.8rem;">
                     <span>Active Quorum</span>
@@ -84,24 +89,30 @@
         </div>
 
     </div>
-
     <script>
-        let lastLogCount = 0;
+    let lastLogCount = 0;
+        let pendingUploadFile = null; 
 
         function upload() {
             let fileInput = document.getElementById("file-input");
             let f = fileInput.files[0];
             if(!f) return alert("Select file");
+            
+            pendingUploadFile = f.name;
+
+            const progContainer = document.getElementById("upload-progress");
+            const progText = document.getElementById("progress-text");
+            progContainer.className = "progress-container active";
+            progText.innerText = `SHREDDING & DISTRIBUTING [${f.name}]...`;
+
             let fd = new FormData();
             fd.append("file", f);
 
-            // Decoupled upload - returns instantly while background thread works
             fetch("/upload", {method:"POST", body:fd})
             .then(res => res.json())
             .then(data => {
                 showLog(`[ASYNC] UPLOAD DELEGATED TO THREAD: ${f.name}`);
-                showLog(`> ${data.msg}`);
-                fileInput.value = ""; // Clear input
+                fileInput.value = ""; 
             });
         }
 
@@ -115,14 +126,29 @@
                 headers: {"Content-Type":"application/json"},
                 body: JSON.stringify({filename:name})
             })
-            .then(res => res.blob())
+            .then(async res => {
+                // Check if the backend sent a JSON error (meaning it crashed or data is lost)
+                const contentType = res.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                    let data = await res.json();
+                    showLog(`❌ RETRIEVAL FAILED: ${data.error}`);
+                    alert(`SYSTEM ERROR:\n${data.error}`);
+                    return null;
+                }
+                return res.blob(); // Success! It's the actual file.
+            })
             .then(blob => {
+                if(!blob) return;
+                
                 let a = document.createElement("a");
                 a.href = URL.createObjectURL(blob);
                 a.download = name;
                 a.click();
                 showLog("DATA RECONSTRUCTED: " + name);
                 document.getElementById("dl-filename").value = "";
+            })
+            .catch(err => {
+                showLog(`❌ NETWORK ERROR: ${err}`);
             });
         }
 
@@ -140,15 +166,14 @@
             const div = document.createElement("div");
             div.className = "terminal-line";
             
-            // Default color is inherited (green). Override based on keywords:
             if (msg.includes("TERMINATION") || msg.includes("fault") || msg.includes("❌")) {
-                div.style.color = "var(--danger)"; // Red
+                div.style.color = "var(--danger)"; 
             } else if (msg.includes("RECONSTRUCTING") || msg.includes("REPLICATED") || msg.includes("⚠️")) {
-                div.style.color = "var(--warning)"; // Yellow
-            } else if (msg.includes("UPLOAD") || msg.includes("injected") || msg.includes("🚀")) {
-                div.style.color = "var(--primary)"; // Blue
+                div.style.color = "var(--warning)"; 
+            } else if (msg.includes("UPLOAD") || msg.includes("injected") || msg.includes("🚀") || msg.includes("Heuristic")) {
+                div.style.color = "var(--primary)"; 
             } else if (msg.includes("purged")) {
-                div.style.color = "var(--accent)"; // Pink/Purple
+                div.style.color = "var(--accent)"; 
             }
 
             div.innerHTML = `[${new Date().toLocaleTimeString()}] > ${msg}`;
@@ -162,15 +187,12 @@
         }
 
         function updateUI() {
-            // Logs
-            // Logs
             fetch("/logs")
             .then(res => res.json())
             .then(data => {
-                // Auto-Reset: If backend has fewer logs than we tracked, the master was rebooted!
                 if(data.logs.length < lastLogCount) {
                     document.getElementById("terminal").innerHTML = "";
-                    lastLogCount = 0; // Reset the tracker
+                    lastLogCount = 0; 
                     showLog("MASTER REBOOT DETECTED. SYNCHRONIZING NEW FEED...");
                 }
 
@@ -181,12 +203,8 @@
                     lastLogCount = data.logs.length;
                 }
             })
-            .catch(err => {
-                // Optional: If the master goes completely offline, it will fail to fetch.
-                // You can silently ignore it until it comes back up.
-            });
+            .catch(err => console.error("Log fetch error:", err));
 
-            // Nodes
             fetch("/nodes")
             .then(res => res.json())
             .then(data => {
@@ -198,7 +216,6 @@
                 let ctrlHTML = "";
                 
                 data.nodes.all.forEach(n => {
-                    // Logic to handle the new degraded state
                     const isDegraded = data.nodes.degraded && data.nodes.degraded.includes(n);
                     const isOnline = data.nodes.active.includes(n);
                     
@@ -229,20 +246,43 @@
                 grid.innerHTML = gridHTML;
                 controls.innerHTML = ctrlHTML || "<p style='font-size:0.8rem; color:#64748b;'>No active units</p>";
                 activeCount.innerText = data.nodes.active.length;
-            });
+                document.getElementById("cluster-rf").innerText = data.nodes.cluster_rf.toFixed(1) + "x";
+            })
+            .catch(err => console.error("Node fetch error:", err));
 
-            // Stats (Files)
             fetch("/stats")
             .then(res => res.json())
             .then(data => {
                 const list = document.getElementById("file-list");
+                
+                if (pendingUploadFile) {
+                    const fileExists = data.stats.find(f => f.name === pendingUploadFile);
+                    if (fileExists) {
+                        const progContainer = document.getElementById("upload-progress");
+                        const progText = document.getElementById("progress-text");
+                        progContainer.className = "progress-container active success";
+                        progText.innerText = "✅ INJECTION COMPLETE";
+                        setTimeout(() => {
+                            progContainer.className = "progress-container";
+                            pendingUploadFile = null;
+                        }, 4000);
+                    }
+                }
+
+                // NEW: Added dynamic RF metrics right above the health bar
                 list.innerHTML = data.stats.map(f => `
                     <tr>
-                        <td>${f.name}</td>
-                        <td>${f.chunks}</td>
+                        <td style="font-weight: 600;">${f.name}</td>
+                        <td>
+                            ${f.chunks} 
+                            <div style="font-size: 0.6rem; color: var(--primary); margin-top: 2px;">~${(f.chunks * 0.5).toFixed(1)} MB</div>
+                        </td>
                         <td>
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
                                 <div style="flex-grow: 1;">
+                                    <div style="font-size: 0.7rem; font-weight: bold; margin-bottom: 3px; color: var(--text);">
+                                        RF: ${f.actual_rf}x / ${f.target_rf}x
+                                    </div>
                                     <div class="health-bar">
                                         <div class="health-fill" style="width: ${f.health}%"></div>
                                     </div>
@@ -253,7 +293,8 @@
                         </td>
                     </tr>
                 `).join("");
-            });
+            })
+            .catch(err => console.error("Stat fetch error:", err));
         }
 
         function deleteFile(filename) {

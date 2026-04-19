@@ -6,7 +6,7 @@ import json
 import hashlib
 
 MASTER_HOST = '127.0.0.1'
-MASTER_PORT = 5000
+MASTER_PORTS = [5000, 5001]
 
 HOST = '127.0.0.1'
 PORT = int(input("Enter node port: "))
@@ -16,22 +16,26 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 print(f"📁 Storage initialized at {STORAGE_DIR}")
 
 def handle_client(conn):
-    data = conn.recv(4096)
+    full_data = b""
+    while True:
+        packet = conn.recv(4096)
+        if not packet:
+            break 
+        full_data += packet
 
-    command = data[:6].decode()
+    command = full_data[:6].decode(errors="ignore")
 
     if command == "STORE:":
-        filename = data[6:50].decode().strip()
-        content = data[50:]
+        filename = full_data[6:50].decode(errors="ignore").strip()
+        content = full_data[50:] 
 
         with open(STORAGE_DIR + filename, "wb") as f:
             f.write(content)
 
-        conn.send(b"STORED")
+        conn.sendall(b"STORED")
 
     elif command == "GET:::":
-        filename = data[6:].decode().strip()
-
+        filename = full_data[6:].decode(errors="ignore").strip()
         filepath = STORAGE_DIR + filename
 
         if os.path.exists(filepath):
@@ -42,7 +46,7 @@ def handle_client(conn):
                        break
                    conn.sendall(chunk)
         else:
-            conn.send(b"NOTFOUND")
+            conn.sendall(b"NOTFOUND")
 
     conn.close()
 
@@ -54,16 +58,13 @@ def background_scrubber():
                 print(f"[NODE {PORT}] 🧹 Scrubbing {len(files)} chunks for bit-rot...")
                 for filename in files:
                     filepath = os.path.join(STORAGE_DIR, filename)
-                    # Just reading the file ensures the OS can still access the sectors
                     with open(filepath, "rb") as f:
                         data = f.read()
-                        # Calculate hash to simulate integrity check
                         current_hash = hashlib.sha256(data).hexdigest()
-                        # In a full implementation, you would compare this hash with the master's metadata
         except Exception as e:
             print(f"[NODE {PORT}] ⚠️ Scrubbing error: {e}")
             
-        time.sleep(30) # Run every 30 seconds
+        time.sleep(30) 
 
 def start_node():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -72,7 +73,7 @@ def start_node():
 
     print(f"[NODE {PORT}] Running...")
     threading.Thread(target=send_heartbeat, daemon=True).start()
-    threading.Thread(target=background_scrubber, daemon=True).start() # Add this line
+    threading.Thread(target=background_scrubber, daemon=True).start() 
 
     while True:
         conn, _ = server.accept()
@@ -80,22 +81,32 @@ def start_node():
 
 def send_heartbeat():
     while True:
-        try:
-            print(f"[NODE {PORT}] sending heartbeat")
-            s = socket.socket()
-            s.connect((MASTER_HOST, MASTER_PORT))
+        success = False
+        for port in MASTER_PORTS:
+            try:
+                s = socket.socket()
+                s.settimeout(1)
+                s.connect((MASTER_HOST, port))
 
-            msg = {
-                "type": "heartbeat",
-                "node": PORT
-            }
+                msg = {
+                    "type": "heartbeat",
+                    "node": PORT
+                }
 
-            s.send(json.dumps(msg).encode())
-            s.close()
-        except:
-            print(f"[NODE {PORT}] heartbeat failed")
+                s.sendall(json.dumps(msg).encode())
+                s.shutdown(socket.SHUT_WR) # Safe close
+                s.close()
+                
+                print(f"[NODE {PORT}] heartbeat sent to Port {port}")
+                success = True
+                break 
+            except:
+                continue
 
-        time.sleep(2)  # every 2 sec
+        if not success:
+            print(f"[NODE {PORT}] ❌ heartbeat failed (Masters down)")
+
+        time.sleep(2) 
 
 if __name__ == "__main__":
     start_node()
