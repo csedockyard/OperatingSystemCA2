@@ -74,7 +74,7 @@ h3 {
 .control-group {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 1.2rem;
 }
 
 .btn {
@@ -88,7 +88,7 @@ h3 {
     transition: all 0.2s ease;
     text-transform: uppercase;
     letter-spacing: 1px;
-    font-size: 0.85rem;
+    font-size: 0.86rem;
 }
 
 .btn:hover {
