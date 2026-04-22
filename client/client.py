@@ -9,40 +9,53 @@ MASTER_PORTS = [5000, 5001]
 CHUNK_SIZE = 1024 * 512 # 512KB chunks
 REPLICATION_FACTOR = 2
 
+
 def _contact_master(payload):
     """Helper function to handle Master HA Failover safely"""
     for port in MASTER_PORTS:
         try:
             s = socket.socket()
-            s.settimeout(5) # Increased for big payloads
+            s.settimeout(5)
             s.connect((MASTER_HOST, port))
             
             s.sendall(json.dumps(payload).encode())
-            s.shutdown(socket.SHUT_WR) # EOF signal to Master
+            s.shutdown(socket.SHUT_WR)
             
             res = b""
             while True:
                 packet = s.recv(4096)
-                if not packet: break
+                if not packet:
+                    break
                 res += packet
                 
             s.close()
             return res
-        except:
+        except Exception as e:  # 🔧 better debugging
+            print(f"Master {port} failed: {e}")
             continue
     return None
+
 
 def get_active_nodes():
     res = _contact_master({"type": "get_nodes"})
     if res:
-        return json.loads(res.decode('utf-8'))["active"]
+        try:
+            return json.loads(res.decode('utf-8')).get("active", [])
+        except:
+            return []
     return []
+
 
 def calculate_checksum(data):
     return hashlib.sha256(data).hexdigest()
 
+
 def split_file(filepath):
     chunks = []
+    
+    if not os.path.exists(filepath):  # 🔧 safety check
+        return chunks
+
     with open(filepath, "rb") as f:
         i = 0
         while True:
@@ -53,6 +66,7 @@ def split_file(filepath):
             chunks.append((chunk_name, data))
             i += 1
     return chunks
+
 
 def send_to_node(port, chunk_name, data):
     try:
@@ -67,7 +81,8 @@ def send_to_node(port, chunk_name, data):
         res = b""
         while True:
             packet = s.recv(1024)
-            if not packet: break
+            if not packet:
+                break
             res += packet
             
         s.close()
@@ -76,9 +91,13 @@ def send_to_node(port, chunk_name, data):
         print(f"Error sending chunk to node {port}: {e}")
         return None
 
+
 def upload_file(filepath):
     chunks = split_file(filepath)
     mapping = {}
+
+    if not chunks:  # 🔧 file validation
+        return "Error: File not found or empty"
 
     active_nodes = get_active_nodes()
     if not active_nodes:
@@ -87,9 +106,6 @@ def upload_file(filepath):
     # ==========================================
     # 🧠 THE AI HEURISTIC: Size-Based Tiering
     # ==========================================
-    # 10 chunks * 512KB = ~5MB. 
-    # If the file is smaller than 5MB, we want High Availability (RF = 3).
-    # If the file is larger than 5MB, we want Storage Efficiency (RF = 2).
     
     if len(chunks) <= 10:
         target_rf = 3
@@ -98,7 +114,6 @@ def upload_file(filepath):
         target_rf = 2
         print(f"Heuristic: Large file detected ({len(chunks)} chunks). Assigning Storage-Efficient Tier (2.0x)")
 
-    # Safety check: We can't replicate 3 times if only 2 nodes are online!
     actual_rf = min(target_rf, len(active_nodes))
     # ==========================================
 
@@ -106,11 +121,17 @@ def upload_file(filepath):
         assigned_nodes = []
         checksum = calculate_checksum(data)
 
-        # Use the dynamically calculated actual_rf instead of the global variable
         for r in range(actual_rf):
             node_port = active_nodes[(i + r) % len(active_nodes)]
-            send_to_node(node_port, name, data)
+            
+            res = send_to_node(node_port, name, data)
+            if res is None:  # 🔧 retry protection
+                continue
+
             assigned_nodes.append(node_port)
+
+        if not assigned_nodes:  # 🔧 fail-safe
+            return f"Error: Failed to store chunk {name}"
 
         mapping[name] = {
             "ports": assigned_nodes,
@@ -126,6 +147,7 @@ def upload_file(filepath):
     res = _contact_master(request)
     return res.decode('utf-8') if res else "Error: All masters offline"
 
+
 def get_chunk_from_node(port, chunk_name):
     try:
         s = socket.socket()
@@ -133,7 +155,7 @@ def get_chunk_from_node(port, chunk_name):
         s.connect(('127.0.0.1', port))
         
         s.sendall(f"GET:::{chunk_name}".encode())
-        s.shutdown(socket.SHUT_WR) # <--- CRITICAL FIX for download deadlock
+        s.shutdown(socket.SHUT_WR)
 
         data = b""
         while True:
@@ -144,8 +166,10 @@ def get_chunk_from_node(port, chunk_name):
 
         s.close()
         return data if data else None
-    except:
+    except Exception as e:  # 🔧 debug info
+        print(f"Node {port} fetch failed: {e}")
         return None
+
 
 def download_file(filename):
     res = _contact_master({
@@ -156,14 +180,17 @@ def download_file(filename):
     if not res:
         return "Error: All masters offline"
 
-    response = json.loads(res.decode('utf-8'))
+    try:
+        response = json.loads(res.decode('utf-8'))
+    except:
+        return "Error: Invalid response from master"
 
-    if response["status"] != "ok":
+    if response.get("status") != "ok":
         return "File not found"
 
     file_data = b""
 
-    for chunk_name in sorted(response["chunks"].keys(), key=lambda x: int(x.split('_')[1])): # Sorted properly by index!
+    for chunk_name in sorted(response["chunks"].keys(), key=lambda x: int(x.split('_')[1])):
         chunk_info = response["chunks"][chunk_name]
         chunk_data = None
         
@@ -179,9 +206,12 @@ def download_file(filename):
         if chunk_data:
             file_data += chunk_data
         else:
-            return "Error: Data missing or corrupted"
+            return f"Error: Missing or corrupted chunk {chunk_name}"
 
-    with open("downloaded_" + filename, "wb") as f:
-        f.write(file_data)
+    try:
+        with open("downloaded_" + filename, "wb") as f:
+            f.write(file_data)
+    except Exception as e:
+        return f"Error writing file: {e}"
 
     return "Download complete"
