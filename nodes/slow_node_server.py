@@ -16,29 +16,51 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 print(f"📁 Storage initialized at {STORAGE_DIR}")
 
 def handle_client(conn):
-    data = conn.recv(4096)
-    command = data[:6].decode()
+    try:
+        data = conn.recv(4096)
+        if not data:
+            conn.close()
+            return
 
-    if command == "STORE:":
-        filename = data[6:50].decode().strip()
-        content = data[50:]
-        with open(STORAGE_DIR + filename, "wb") as f:
-            f.write(content)
-        conn.send(b"STORED")
+        command = data[:6].decode(errors="ignore")
 
-    elif command == "GET:::":
-        filename = data[6:].decode().strip()
-        filepath = STORAGE_DIR + filename
-        if os.path.exists(filepath):
-            with open(filepath, "rb") as f:
-                while True:
-                   chunk = f.read(4096)
-                   if not chunk:
-                       break
-                   conn.sendall(chunk)
+        if command == "STORE:":
+            filename = data[6:50].decode(errors="ignore").strip()
+            content = data[50:]
+
+            if not filename:
+                conn.send(b"INVALID_FILENAME")
+                conn.close()
+                return
+
+            filepath = os.path.join(STORAGE_DIR, filename)
+
+            with open(filepath, "wb") as f:
+                f.write(content)
+
+            conn.send(b"STORED")
+
+        elif command == "GET:::":
+            filename = data[6:].decode(errors="ignore").strip()
+            filepath = os.path.join(STORAGE_DIR, filename)
+
+            if os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    while True:
+                        chunk = f.read(4096)
+                        if not chunk:
+                            break
+                        conn.sendall(chunk)
+            else:
+                conn.send(b"NOTFOUND")
+
         else:
-            conn.send(b"NOTFOUND")
-    conn.close()
+            conn.send(b"UNKNOWN_COMMAND")
+
+    except Exception as e:
+        print(f"[NODE {PORT}] ⚠️ Client handling error: {e}")
+    finally:
+        conn.close()
 
 def background_scrubber():
     while True:
@@ -48,9 +70,18 @@ def background_scrubber():
                 print(f"[NODE {PORT}] 🧹 Scrubbing {len(files)} chunks for bit-rot...")
                 for filename in files:
                     filepath = os.path.join(STORAGE_DIR, filename)
+
+                    if not os.path.isfile(filepath):
+                        continue
+
                     with open(filepath, "rb") as f:
                         data = f.read()
                         current_hash = hashlib.sha256(data).hexdigest()
+
+                        # Placeholder: hash computed (future validation hook)
+                        if not current_hash:
+                            print(f"[NODE {PORT}] ⚠️ Hash error in {filename}")
+
         except Exception as e:
             print(f"[NODE {PORT}] ⚠️ Scrubbing error: {e}")
             
@@ -58,20 +89,28 @@ def background_scrubber():
 
 def start_node():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    # 🔧 Improvement: allow quick restart
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
     server.bind((HOST, PORT))
-    server.listen()
+    server.listen(5)
 
     print(f"[NODE {PORT}] Running...")
     threading.Thread(target=send_heartbeat, daemon=True).start()
     threading.Thread(target=background_scrubber, daemon=True).start() 
 
     while True:
-        conn, _ = server.accept()
-        threading.Thread(target=handle_client, args=(conn,)).start()
+        try:
+            conn, addr = server.accept()
+            threading.Thread(target=handle_client, args=(conn,), daemon=True).start()
+        except Exception as e:
+            print(f"[NODE {PORT}] ⚠️ Accept error: {e}")
 
 def send_heartbeat():
     while True:
         success = False
+
         for port in MASTER_PORTS:
             try:
                 s = socket.socket()
@@ -85,10 +124,14 @@ def send_heartbeat():
 
                 s.send(json.dumps(msg).encode())
                 s.close()
+
                 print(f"[NODE {PORT}] heartbeat sent to Port {port}")
                 success = True
                 break 
-            except:
+
+            except Exception as e:
+                # 🔧 Improvement: optional debug (silent fail avoided)
+                print(f"[NODE {PORT}] heartbeat retry on {port}: {e}")
                 continue
 
         if not success:
