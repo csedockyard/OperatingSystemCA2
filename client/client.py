@@ -11,7 +11,7 @@ CHUNK_SIZE = 1024 * 512 # 512KB chunks
 REPLICATION_FACTOR = 2
 
 def _contact_master(payload):
-    """Helper function to handle Master HA Failover safely"""
+    """Helper function to handle Master HA Failover safely."""
     for port in MASTER_PORTS:
         try:
             s = socket.socket()
