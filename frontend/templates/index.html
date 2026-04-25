@@ -3,94 +3,92 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DFS Neural Control | Fault Tolerant Distributed Storage</title>
+    <title>DFS Management Console</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600;700;800;900&family=JetBrains+Mono:wght@600;800&display=swap" rel="stylesheet">
 </head>
 <body>
 
-    <h1>NEURAL STORAGE CLUSTER</h1>
+    <div class="header-bar">
+        <h1>DFS MANAGEMENT CONSOLE</h1>
+        <div class="system-status">
+            <span style="display:inline-block; width:12px; height:12px; background:var(--success); border-radius:50%;"></span>
+            CLUSTER ONLINE
+        </div>
+    </div>
 
     <div class="container">
         
-        <div class="glass-panel">
-            <h3>⚡ NODE TOPOLOGY</h3>
-            <div id="node-grid" class="node-grid">
-                </div>
+        <div class="panel">
+            <h3>Infrastructure Topology</h3>
+            <div id="node-grid" class="node-grid"></div>
             
-            <hr style="margin: 2rem 0; border-color: rgba(255,255,255,0.05);">
-            
-            <h3>🛠️ COMMAND CENTER</h3>
-            <div id="node-controls" class="control-group">
-                </div>
+            <h3 style="margin-top: 2rem;">Hardware Simulation</h3>
+            <div id="node-controls" class="control-group"></div>
         </div>
 
-        <div class="glass-panel">
-            <h3>📂 CLUSTER FILES</h3>
+        <div class="panel">
+            <h3>Object Storage</h3>
             <table>
                 <thead>
                     <tr>
-                        <th>FILENAME</th>
-                        <th>CHUNKS</th>
-                        <th>REPLICATION</th>
+                        <th>Object ID</th>
+                        <th>Shards</th>
+                        <th>Availability Status</th>
                     </tr>
                 </thead>
-                <tbody id="file-list">
-                    </tbody>
+                <tbody id="file-list"></tbody>
             </table>
 
-            <hr style="margin: 2rem 0; border-color: rgba(255,255,255,0.05);">
-
-            <h3>📤 INJECT DATA</h3>
+            <h3 style="margin-top: 2rem;">Data Ingestion</h3>
             <div class="control-group">
                 <input type="file" id="file-input">
-                <button class="btn" onclick="upload()">Background Upload</button>
+                <button class="btn" onclick="upload()">EXECUTE PARALLEL UPLOAD</button>
             </div>
             
             <div id="upload-progress" class="progress-container">
-                <div class="progress-spinner"></div>
-                <div id="progress-text" class="progress-text">DISTRIBUTING CHUNKS...</div>
+                <div id="progress-text" class="progress-text">PROCESSING INGESTION...</div>
             </div>
 
-            <h3 style="margin-top: 2rem;">📥 RETRIEVE DATA</h3>
+            <h3 style="margin-top: 2rem;">Data Retrieval</h3>
             <div class="control-group">
-                <input type="text" id="dl-filename" placeholder="Enter filename.ext">
-                <button class="btn" onclick="download()">Download Protocol</button>
+                <input type="text" id="dl-filename" placeholder="Enter object name">
+                <button class="btn" style="background: white; color: var(--primary); border: 2px solid var(--primary);" onclick="download()">FETCH OBJECT</button>
             </div>
         </div>
 
-        <div class="glass-panel">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                <h3 style="margin-bottom: 0;">🖥️ SYSTEM FEED</h3>
-                <button class="btn btn-danger" style="padding: 0.2rem 0.5rem; font-size: 0.6rem; letter-spacing: 1px;" onclick="clearTerminal()">PURGE FEED</button>
+        <div class="panel">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <h3>Telemetry Feed</h3>
+                <button class="btn-danger" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; font-weight: 800;" onclick="clearTerminal()">CLEAR LOGS</button>
             </div>
-            <div id="terminal" class="terminal">
-                </div>
+            <div id="terminal" class="terminal"></div>
             
-            <h3 style="margin-top: 2rem;">🛡️ CLUSTER HEALTH</h3>
-            <div style="font-size: 0.9rem; color: #94a3b8;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 0.8rem;">
-                    <span>Replication Factor</span>
-                    <span id="cluster-rf" style="color: var(--primary); font-weight: bold;">0.0x</span>
+            <h3 style="margin-top: 2rem;">Cluster Metrics</h3>
+            <div>
+                <div class="metric-row">
+                    <span>Global Replication Factor</span>
+                    <span id="cluster-rf" class="metric-val">0.0x</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 0.8rem;">
+                <div class="metric-row">
                     <span>Active Quorum</span>
-                    <span id="active-count" style="color: var(--success); font-weight: bold;">0</span>
+                    <span id="active-count" class="metric-val">0</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 0.8rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.8rem;">
-                    <span>AI Predictor Agent</span>
-                    <span class="sys-badge badge-active">ONLINE</span>
+                <div class="metric-row" style="border-top: 2px solid var(--border-color); padding-top: 1rem;">
+                    <span>Predictive Analysis Agent</span>
+                    <span class="sys-badge">ACTIVE</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                    <span>Integrity Scrubber</span>
-                    <span class="sys-badge badge-active">RUNNING</span>
+                <div class="metric-row">
+                    <span>Cryptographic Scrubber</span>
+                    <span class="sys-badge">ACTIVE</span>
                 </div>
             </div>
         </div>
 
     </div>
+
     <script>
-    let lastLogCount = 0;
+        let lastLogCount = 0;
         let pendingUploadFile = null; 
 
         function upload() {
@@ -103,7 +101,7 @@
             const progContainer = document.getElementById("upload-progress");
             const progText = document.getElementById("progress-text");
             progContainer.className = "progress-container active";
-            progText.innerText = `SHREDDING & DISTRIBUTING [${f.name}]...`;
+            progText.innerText = `INGESTING [${f.name}] TO CLUSTER...`;
 
             let fd = new FormData();
             fd.append("file", f);
@@ -111,7 +109,7 @@
             fetch("/upload", {method:"POST", body:fd})
             .then(res => res.json())
             .then(data => {
-                showLog(`[ASYNC] UPLOAD DELEGATED TO THREAD: ${f.name}`);
+                showLog(`[INFO] Upload process delegated to background workers: ${f.name}`);
                 fileInput.value = ""; 
             });
         }
@@ -120,35 +118,33 @@
             let name = document.getElementById("dl-filename").value;
             if(!name) return alert("Enter filename");
 
-            showLog("INITIATING RETRIEVAL: " + name);
+            showLog("[INFO] Initiating fetch protocol for: " + name);
             fetch("/download", {
                 method:"POST",
                 headers: {"Content-Type":"application/json"},
                 body: JSON.stringify({filename:name})
             })
             .then(async res => {
-                // Check if the backend sent a JSON error (meaning it crashed or data is lost)
                 const contentType = res.headers.get("content-type");
                 if (contentType && contentType.includes("application/json")) {
                     let data = await res.json();
-                    showLog(`❌ RETRIEVAL FAILED: ${data.error}`);
+                    showLog(`[ERROR] Fetch failed: ${data.error}`);
                     alert(`SYSTEM ERROR:\n${data.error}`);
                     return null;
                 }
-                return res.blob(); // Success! It's the actual file.
+                return res.blob();
             })
             .then(blob => {
                 if(!blob) return;
-                
                 let a = document.createElement("a");
                 a.href = URL.createObjectURL(blob);
                 a.download = name;
                 a.click();
-                showLog("DATA RECONSTRUCTED: " + name);
+                showLog("[SUCCESS] Data reconstructed: " + name);
                 document.getElementById("dl-filename").value = "";
             })
             .catch(err => {
-                showLog(`❌ NETWORK ERROR: ${err}`);
+                showLog(`[ERROR] Network failure: ${err}`);
             });
         }
 
@@ -158,32 +154,35 @@
                 headers: {"Content-Type":"application/json"},
                 body: JSON.stringify({node})
             });
-            showLog("TERMINATION SIGNAL SENT: NODE_" + node);
+            showLog("[CRITICAL] Termination signal sent to Node " + node);
         }
 
         function showLog(msg) {
             const term = document.getElementById("terminal");
             const div = document.createElement("div");
-            div.className = "terminal-line";
             
-            if (msg.includes("TERMINATION") || msg.includes("fault") || msg.includes("❌")) {
-                div.style.color = "var(--danger)"; 
-            } else if (msg.includes("RECONSTRUCTING") || msg.includes("REPLICATED") || msg.includes("⚠️")) {
-                div.style.color = "var(--warning)"; 
-            } else if (msg.includes("UPLOAD") || msg.includes("injected") || msg.includes("🚀") || msg.includes("Heuristic")) {
-                div.style.color = "var(--primary)"; 
-            } else if (msg.includes("purged")) {
-                div.style.color = "var(--accent)"; 
+            // High contrast terminal colors for pure black background
+            if (msg.includes("TERMINATION") || msg.includes("fault") || msg.includes("FATAL") || msg.includes("[ERROR]") || msg.includes("[CRITICAL]")) {
+                div.className = "terminal-line log-error";
+            } else if (msg.includes("RECONSTRUCTING") || msg.includes("Warning") || msg.includes("[WARN]")) {
+                div.className = "terminal-line log-warn";
+            } else if (msg.includes("purged") || msg.includes("[SYS]")) {
+                div.className = "terminal-line log-sys";
+            } else if (msg.includes("STABILIZED") || msg.includes("[SUCCESS]")) {
+                div.className = "terminal-line log-success";
+            } else {
+                div.className = "terminal-line";
             }
 
-            div.innerHTML = `[${new Date().toLocaleTimeString()}] > ${msg}`;
+            // Stripping emojis for the enterprise look
+            div.innerText = `[${new Date().toLocaleTimeString()}] ${msg.replace(/[🚀🧩💾⚠️❌💀🗑️🔁✅🧹]/g, '')}`;
             term.appendChild(div);
             term.scrollTop = term.scrollHeight;
         }
          
         function clearTerminal() {
             document.getElementById("terminal").innerHTML = "";
-            showLog("TERMINAL FEED PURGED BY OPERATOR");
+            showLog("[SYS] Telemetry buffer cleared by operator");
         }
 
         function updateUI() {
@@ -193,9 +192,8 @@
                 if(data.logs.length < lastLogCount) {
                     document.getElementById("terminal").innerHTML = "";
                     lastLogCount = 0; 
-                    showLog("MASTER REBOOT DETECTED. SYNCHRONIZING NEW FEED...");
+                    showLog("[SYS] Master reboot detected. Re-syncing...");
                 }
-
                 if(data.logs.length > lastLogCount) {
                     for(let i = lastLogCount; i < data.logs.length; i++) {
                         showLog(data.logs[i]);
@@ -203,7 +201,7 @@
                     lastLogCount = data.logs.length;
                 }
             })
-            .catch(err => console.error("Log fetch error:", err));
+            .catch(err => console.error("Log error:", err));
 
             fetch("/nodes")
             .then(res => res.json())
@@ -218,37 +216,54 @@
                 data.nodes.all.forEach(n => {
                     const isDegraded = data.nodes.degraded && data.nodes.degraded.includes(n);
                     const isOnline = data.nodes.active.includes(n);
+                    const telemetry = data.nodes.telemetry && data.nodes.telemetry[n] ? data.nodes.telemetry[n] : { ram_buffer_usage: 0 };
+                    const ramUsage = telemetry.ram_buffer_usage;
+                    const ramPercent = (ramUsage / 10) * 100; 
+                    const isLocked = ramUsage >= 10;
                     
                     let stateClass = 'offline';
-                    let stateText = 'LOST';
+                    let stateText = 'UNREACHABLE';
                     
-                    if (isDegraded) {
+                    if (isLocked) {
+                        stateClass = 'locked'; 
+                        stateText = 'I/O BLOCKED';
+                    } else if (isDegraded) {
                         stateClass = 'degraded';
-                        stateText = 'DEGRADED ⚠️';
+                        stateText = 'DEGRADED';
                     } else if (isOnline) {
                         stateClass = 'online';
-                        stateText = 'STABLE';
+                        stateText = 'HEALTHY';
                     }
 
                     gridHTML += `
                         <div class="node-card ${stateClass}">
-                            <div class="status-dot"></div>
-                            <div style="font-weight: 800; font-size: 0.8rem;">UNIT ${n}</div>
-                            <div style="font-size: 0.6rem; margin-top: 0.2rem; color: var(--${stateClass === 'degraded' ? 'warning' : (stateClass === 'online' ? 'success' : 'danger')});">${stateText}</div>
+                            <div class="semaphore-badge">LOCK</div>
+                            <div class="node-title">UNIT ${n}</div>
+                            <div class="node-status">${stateText}</div>
+                            
+                            <div style="margin-top: 1rem;">
+                                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-main); font-weight: 800;">
+                                    <span>RAM Queue</span>
+                                    <span>${ramUsage}/10</span>
+                                </div>
+                                <div class="ram-container">
+                                    <div class="ram-fill ${isLocked ? 'locked' : ''}" style="width: ${ramPercent}%;"></div>
+                                </div>
+                            </div>
                         </div>
                     `;
                     
                     if(isOnline || isDegraded) {
-                        ctrlHTML += `<button class="btn btn-danger" onclick="killNode(${n})">Kill Node ${n}</button>`;
+                        ctrlHTML += `<button class="btn btn-danger" onclick="killNode(${n})">TERMINATE UNIT ${n}</button>`;
                     }
                 });
                 
                 grid.innerHTML = gridHTML;
-                controls.innerHTML = ctrlHTML || "<p style='font-size:0.8rem; color:#64748b;'>No active units</p>";
+                controls.innerHTML = ctrlHTML || "<p style='font-size:0.9rem; font-weight:700; color:var(--text-muted);'>NO ACTIVE HARDWARE</p>";
                 activeCount.innerText = data.nodes.active.length;
                 document.getElementById("cluster-rf").innerText = data.nodes.cluster_rf.toFixed(1) + "x";
             })
-            .catch(err => console.error("Node fetch error:", err));
+            .catch(err => console.error("Node error:", err));
 
             fetch("/stats")
             .then(res => res.json())
@@ -260,51 +275,48 @@
                     if (fileExists) {
                         const progContainer = document.getElementById("upload-progress");
                         const progText = document.getElementById("progress-text");
-                        progContainer.className = "progress-container active success";
-                        progText.innerText = "✅ INJECTION COMPLETE";
+                        progText.innerText = "INGESTION COMPLETE.";
                         setTimeout(() => {
                             progContainer.className = "progress-container";
                             pendingUploadFile = null;
-                        }, 4000);
+                        }, 3000);
                     }
                 }
 
-                // NEW: Added dynamic RF metrics right above the health bar
                 list.innerHTML = data.stats.map(f => `
                     <tr>
-                        <td style="font-weight: 600;">${f.name}</td>
+                        <td style="font-weight: 800;">${f.name}</td>
                         <td>
-                            ${f.chunks} 
-                            <div style="font-size: 0.6rem; color: var(--primary); margin-top: 2px;">~${(f.chunks * 0.5).toFixed(1)} MB</div>
+                            <div style="font-size: 0.95rem; font-weight: 700;">${f.chunks} blocks</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">~${(f.chunks * 0.5).toFixed(1)} MB</div>
                         </td>
                         <td>
-                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <div style="display: flex; gap: 1rem; align-items: center;">
                                 <div style="flex-grow: 1;">
-                                    <div style="font-size: 0.7rem; font-weight: bold; margin-bottom: 3px; color: var(--text);">
-                                        RF: ${f.actual_rf}x / ${f.target_rf}x
+                                    <div style="font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; color: var(--text-main);">
+                                        RF: ${f.actual_rf}x / TARGET: ${f.target_rf}x
                                     </div>
                                     <div class="health-bar">
                                         <div class="health-fill" style="width: ${f.health}%"></div>
                                     </div>
-                                    <span style="font-size: 0.6rem; color: #94a3b8;">${f.health}% HEALTH</span>
                                 </div>
-                                <button class="btn btn-danger" style="padding: 0.2rem 0.5rem; font-size: 0.6rem;" onclick="deleteFile('${f.name}')">DEL</button>
+                                <button class="btn-danger" style="padding: 0.3rem 0.6rem; font-size: 0.75rem; font-weight: 800; border-radius: 0.25rem;" onclick="deleteFile('${f.name}')">DELETE</button>
                             </div>
                         </td>
                     </tr>
                 `).join("");
             })
-            .catch(err => console.error("Stat fetch error:", err));
+            .catch(err => console.error("Stat error:", err));
         }
 
         function deleteFile(filename) {
-            if(confirm(`Are you sure you want to purge ${filename} from the cluster?`)) {
+            if(confirm(`Confirm deletion of object: ${filename}?`)) {
                 fetch("/delete", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({filename: filename})
                 });
-                showLog(`🗑️ PURGE COMMAND INITIATED: ${filename}`);
+                showLog(`[SYS] Purge command executed for object: ${filename}`);
             }
         }
 

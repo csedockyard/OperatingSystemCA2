@@ -106,7 +106,7 @@ def send_heartbeat():
         if not success:
             print(f"[NODE {PORT}] ❌ heartbeat failed (Masters down)")
 
-        time.sleep(2) 
+        time.sleep(4) 
 
 if __name__ == "__main__":
     start_node()

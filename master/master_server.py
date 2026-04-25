@@ -3,10 +3,11 @@ import threading
 import json
 import time
 import os
+import queue # NEW: For OS-Level Task Scheduling
+from collections import OrderedDict
 
 HOST = '127.0.0.1'
 
-# Ask operator to define Master role
 try:
     PORT = int(input("Enter Master Port (5000 for Primary, 5001 for Backup): "))
 except ValueError:
@@ -17,8 +18,68 @@ dead_nodes = set()
 metadata = {}
 event_log = []
 all_nodes = set()
+live_telemetry = {} 
 METADATA_FILE = "master/metadata.json"
 metadata_lock = threading.Lock()
+
+# ==========================================
+# 🧠 OS CONCEPT: PRIORITY CPU SCHEDULER
+# ==========================================
+cpu_scheduler = queue.PriorityQueue()
+
+# ==========================================
+# 🧠 OS CONCEPT: LRU PAGE REPLACEMENT CACHE
+# ==========================================
+class LRUMetadataCache:
+    def __init__(self, capacity=3):
+        self.cache = OrderedDict()
+        self.capacity = capacity
+
+    def get_routing(self, filename):
+        if filename in self.cache:
+            # CACHE HIT: Move to end to mark as "Most Recently Used"
+            self.cache.move_to_end(filename)
+            log(f"[SYS] LRU Cache Hit: '{filename}' served instantly from RAM.")
+            return self.cache[filename]
+        else:
+            # PAGE FAULT: Not in RAM.
+            return None
+
+    def put_routing(self, filename, routing_data):
+        self.cache[filename] = routing_data
+        self.cache.move_to_end(filename)
+        # LRU EVICTION: If we exceed capacity, pop the oldest item (First In)
+        if len(self.cache) > self.capacity:
+            oldest_file, _ = self.cache.popitem(last=False)
+            log(f"[SYS] LRU Eviction: RAM full. Purged '{oldest_file}' to make space.")
+
+# Initialize the RAM Cache with a limit of 3 active files
+routing_cache = LRUMetadataCache(capacity=3)
+# ==========================================
+
+def os_dispatcher():
+    """
+    This daemon thread acts as the CPU Scheduler. 
+    It constantly pulls tasks from the queue. If a Priority 1 and Priority 3 
+    task arrive at the same time, Priority 1 ALWAYS gets the CPU first.
+    """
+    while True:
+        priority, task_name, func, args = cpu_scheduler.get()
+        
+        # We only print logs for high-priority tasks to keep the UI clean
+        if priority == 1:
+            log(f"[SYS] CPU Dispatcher halted routine tasks. Executing Priority {priority}: {task_name}")
+            
+        try:
+            func(*args)
+        except Exception as e:
+            log(f"[ERROR] Dispatcher failed on task {task_name}: {e}")
+        finally:
+            cpu_scheduler.task_done()
+
+# Start the CPU Scheduler daemon immediately
+threading.Thread(target=os_dispatcher, daemon=True).start()
+# ==========================================
 
 def load_metadata():
     global metadata
@@ -26,9 +87,9 @@ def load_metadata():
         try:
             with open(METADATA_FILE, "r") as f:
                 metadata = json.load(f)
-            log("💾 Metadata loaded from persistent storage")
+            log("[SYS] Metadata loaded from persistent storage")
         except:
-            log("⚠️ Metadata file corrupted, starting fresh")
+            log("[WARN] Metadata file corrupted, starting fresh")
             metadata = {}
 
 def save_metadata():
@@ -36,17 +97,36 @@ def save_metadata():
         os.makedirs("master", exist_ok=True)
         with open(METADATA_FILE, "w") as f:
             json.dump(metadata, f, indent=4)
+        # log("[SYS] Deferred I/O: Metadata flushed to physical disk.") # Optional log
     except Exception as e:
-        log(f"❌ Failed to save metadata: {str(e)}")
+        log(f"[ERROR] Failed to save metadata: {str(e)}")
 
 def log(msg):
     timestamp = time.strftime("%H:%M:%S")
     event_log.append(f"[{timestamp}] {msg}")
     print(f"[{timestamp}] {msg}")
 
+def process_heartbeat(request):
+    """Extracted logic so the Dispatcher can execute it"""
+    node = request["node"]
+    all_nodes.add(node)
+
+    if node in dead_nodes:
+        return
+
+    if node not in active_nodes:
+        active_nodes[node] = []
+    active_nodes[node].append(time.time())
+    if len(active_nodes[node]) > 5:
+        active_nodes[node].pop(0)
+
+    if "ram_buffer_usage" in request:
+        live_telemetry[str(node)] = {
+            "ram_buffer_usage": request["ram_buffer_usage"]
+        }
+
 def handle_client(conn, addr):
     try:
-        # 1. Safely read payloads of ANY size (crucial for big files)
         full_data = b""
         while True:
             packet = conn.recv(4096)
@@ -65,26 +145,46 @@ def handle_client(conn, addr):
 
         with metadata_lock:
             metadata[filename] = chunks
-            save_metadata()
+            # PRIORITY 3: Deferred I/O. Don't block the network waiting for the SSD.
+            cpu_scheduler.put((3, f"DEFERRED_SAVE_{filename}", save_metadata, ()))
 
-        log(f"🚀 File '{filename}' injected into cluster")
-        for c in chunks:
-            log(f"🧩 {c} distributed → {chunks[c]['ports']}")
+        log(f"[INFO] File '{filename}' injected into cluster")
+        
+        # --- NEW FIX: Restore the shard mapping logs ---
+        for chunk_name, chunk_info in chunks.items():
+            log(f"[INFO] Shard {chunk_name} mapped to Units {chunk_info['ports']}")
+        # -----------------------------------------------
 
         conn.sendall(json.dumps({"status": "ok"}).encode())
 
     elif request["type"] == "download":
         filename = request["filename"]
 
-        if filename in metadata:
-            log(f"Retrieval protocol initiated → '{filename}'")
+        # STEP 1: Ask the LRU Cache first
+        cached_data = routing_cache.get_routing(filename)
+
+        if cached_data:
+            # Fast Path: Served from RAM
             conn.sendall(json.dumps({
                 "status": "ok",
-                "chunks": metadata[filename]
+                "chunks": cached_data
             }).encode())
         else:
-            log(f"⚠️ Retrieval failed → '{filename}' not found")
-            conn.sendall(json.dumps({"status": "error"}).encode())
+            # STEP 2: Page Fault! We must do a slow lookup from the main metadata
+            if filename in metadata:
+                log(f"[WARN] Page Fault: '{filename}' not in RAM. Fetching from main storage...")
+                
+                # Fetch it and put it in the RAM cache for next time
+                file_data = metadata[filename]
+                routing_cache.put_routing(filename, file_data)
+                
+                log(f"[INFO] Retrieval protocol initiated for '{filename}'")
+                conn.sendall(json.dumps({
+                    "status": "ok",
+                    "chunks": file_data
+                }).encode())
+            else:
+                conn.sendall(json.dumps({"status": "error"}).encode())
 
     elif request["type"] == "delete":
         filename = request["filename"]
@@ -92,33 +192,30 @@ def handle_client(conn, addr):
         with metadata_lock:
             if filename in metadata:
                 del metadata[filename]
-                save_metadata()
-                log(f"🗑️ File '{filename}' purged from cluster metadata")
+                # PRIORITY 3: Deferred Disk Write
+                cpu_scheduler.put((3, f"DEFERRED_SAVE_{filename}", save_metadata, ()))
+                log(f"[SYS] File '{filename}' purged from namespace")
                 conn.sendall(json.dumps({"status": "ok"}).encode())
             else:
                 conn.sendall(json.dumps({"status": "error"}).encode())
 
     elif request["type"] == "heartbeat":
-        node = request["node"]
-        all_nodes.add(node)
-
-        if node in dead_nodes:
-            conn.close()
-            return
-
-        if node not in active_nodes:
-            active_nodes[node] = []
-        active_nodes[node].append(time.time())
-        if len(active_nodes[node]) > 5:
-            active_nodes[node].pop(0)
+        # PRIORITY 2: Queue the telemetry update
+        cpu_scheduler.put((2, f"HEARTBEAT_{request['node']}", process_heartbeat, (request,)))
 
     elif request["type"] == "kill_node":
         node = request["node"]
         dead_nodes.add(node)
-        log(f"Node {node} terminated by operator")
+        log(f"[CRITICAL] Unit {node} terminated by operator")
         if node in active_nodes:
             del active_nodes[node]
-        re_replicate(node)
+            
+        # NEW FIX: Purge the ghost telemetry so the UI clears the red lock
+        if str(node) in live_telemetry:
+            del live_telemetry[str(node)]
+            
+        # PRIORITY 1: Emergency Crash Recovery!
+        cpu_scheduler.put((1, f"CRASH_RECOVERY_{node}", re_replicate, (node,)))
         conn.sendall(b"OK")
 
     elif request["type"] == "get_logs":
@@ -135,7 +232,6 @@ def handle_client(conn, addr):
                 if avg_latency > 3.5:  
                     degraded_list.append(node)
 
-        # 🧠 Calculate the Global Adaptive Cluster Replication Factor
         total_chunks = 0
         total_replicas = 0
         for file, chunks in metadata.items():
@@ -149,7 +245,8 @@ def handle_client(conn, addr):
             "active": list(active_nodes.keys()),
             "degraded": degraded_list, 
             "all": list(all_nodes),
-            "cluster_rf": cluster_rf # Send dynamic global RF to UI
+            "cluster_rf": cluster_rf,
+            "telemetry": live_telemetry 
         }
         conn.sendall(json.dumps(response).encode())
 
@@ -165,7 +262,7 @@ def handle_client(conn, addr):
                 "name": name,
                 "chunks": len(chunks),
                 "health": min(round((avg_replication / target_rf) * 100, 1), 100),
-                "actual_rf": round(avg_replication, 1), # Send per-file exact RF to UI
+                "actual_rf": round(avg_replication, 1), 
                 "target_rf": target_rf
             })
         conn.sendall(json.dumps(file_stats).encode())
@@ -183,7 +280,7 @@ def monitor_nodes():
             time_since_last = now - last_beat
 
             if time_since_last > 5:
-                log(f"❌ Node {node} hard fault (timeout).")
+                log(f"[ERROR] Unit {node} hard fault (timeout).")
                 nodes_to_remove.append(node)
             
             elif len(timestamps) == 5:
@@ -191,18 +288,23 @@ def monitor_nodes():
                 avg_latency = sum(intervals) / len(intervals)
                 
                 if avg_latency > 3.5 and time_since_last > 3:
-                    log(f"⚠️ Warning: Node {node} showing severe latency (Avg: {avg_latency:.2f}s). Preemptive replication advised.")
+                    log(f"[WARN] Unit {node} showing severe latency. Preemptive replication advised.")
 
         for node in nodes_to_remove:
-            del active_nodes[node]
-            re_replicate(node)
+            if node in active_nodes:
+                del active_nodes[node]
+                
+            # NEW FIX: Purge the ghost telemetry for auto-detected crashes
+            if str(node) in live_telemetry:
+                del live_telemetry[str(node)]
+                
+            # PRIORITY 1: Auto-detected crash recovery
+            cpu_scheduler.put((1, f"AUTO_RECOVERY_{node}", re_replicate, (node,)))
 
         time.sleep(2)
 
 def re_replicate(dead_node):
     tasks = []
-    
-    # STEP 1: Safely lock metadata, remove the dead node, and queue tasks
     with metadata_lock:
         for file in metadata:
             for chunk in metadata[file]:
@@ -210,23 +312,20 @@ def re_replicate(dead_node):
                 if dead_node in ports:
                     ports.remove(dead_node)
                     if len(ports) > 0:
-                        # Queue the chunk to be copied from a surviving node
                         tasks.append((file, chunk, ports[0]))
                     else:
-                        log(f"💀 FATAL DATA LOSS → {chunk}")
+                        log(f"[FATAL] DATA LOSS IN SHARD → {chunk}")
 
-    # STEP 2: Do the slow network transfers outside the lock so the server stays alive
     for file, chunk, source_node in tasks:
-        log(f" 🔁 RECONSTRUCTING {chunk} from Node {source_node}")
+        log(f"[INFO] Reconstructing {chunk} from Unit {source_node}")
         data = get_chunk(source_node, chunk)
         
         if not data:
-            log(f"⚠️ EXTRACTION FAILED → {chunk}")
+            log(f"[ERROR] Extraction failed for {chunk}")
             continue
 
         target_node = None
         
-        # Briefly lock to find a node that doesn't already have this chunk
         with metadata_lock:
             current_ports = metadata[file][chunk]["ports"]
             for node in active_nodes:
@@ -234,20 +333,21 @@ def re_replicate(dead_node):
                     target_node = node
                     break
                     
-        # If we found a target, transfer the data and save
         if target_node:
             if send_chunk(target_node, chunk, data):
                 with metadata_lock:
                     metadata[file][chunk]["ports"].append(target_node)
-                    save_metadata()
-                log(f"{chunk} REPLICATED → Node {target_node}")
-                if tasks:
-                    log(f"✅ CLUSTER STABILIZED: {len(tasks)} chunks successfully recovered.")
+                    # Priority 3: Defer the SSD save
+                    cpu_scheduler.put((3, "DEFERRED_SAVE_RECOVERY", save_metadata, ()))
+                log(f"[SUCCESS] {chunk} replicated to Unit {target_node}")
+                
+    if tasks:
+        log(f"[SUCCESS] CLUSTER STABILIZED: {len(tasks)} shards recovered.")
 
 def get_chunk(port, chunk):
     try:
         s = socket.socket()
-        s.settimeout(3)
+        s.settimeout(5)
         s.connect(("127.0.0.1", port))
         s.sendall(f"GET:::{chunk}".encode())
         s.shutdown(socket.SHUT_WR)

@@ -2,6 +2,7 @@ import socket
 import json
 import os
 import hashlib
+import concurrent.futures
 
 MASTER_HOST = '127.0.0.1'
 MASTER_PORTS = [5000, 5001]
@@ -57,7 +58,7 @@ def split_file(filepath):
 def send_to_node(port, chunk_name, data):
     try:
         s = socket.socket()
-        s.settimeout(5)
+        s.settimeout(30) 
         s.connect(('127.0.0.1', port))
         
         header = f"STORE:{chunk_name:<44}".encode()
@@ -76,6 +77,8 @@ def send_to_node(port, chunk_name, data):
         print(f"Error sending chunk to node {port}: {e}")
         return None
 
+import concurrent.futures # Make sure this is at the top of client.py!
+
 def upload_file(filepath):
     chunks = split_file(filepath)
     mapping = {}
@@ -84,13 +87,6 @@ def upload_file(filepath):
     if not active_nodes:
         return "Error: No active nodes"
 
-    # ==========================================
-    # 🧠 THE AI HEURISTIC: Size-Based Tiering
-    # ==========================================
-    # 10 chunks * 512KB = ~5MB. 
-    # If the file is smaller than 5MB, we want High Availability (RF = 3).
-    # If the file is larger than 5MB, we want Storage Efficiency (RF = 2).
-    
     if len(chunks) <= 10:
         target_rf = 3
         print(f"Heuristic: Small file detected ({len(chunks)} chunks). Assigning High-Availability Tier (3.0x)")
@@ -98,25 +94,40 @@ def upload_file(filepath):
         target_rf = 2
         print(f"Heuristic: Large file detected ({len(chunks)} chunks). Assigning Storage-Efficient Tier (2.0x)")
 
-    # Safety check: We can't replicate 3 times if only 2 nodes are online!
     actual_rf = min(target_rf, len(active_nodes))
-    # ==========================================
+    print(f"🚀 INITIATING PARALLEL UPLOAD ({len(chunks) * actual_rf} chunk transfers)...")
+    
+    futures = []
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
+        for i, (name, data) in enumerate(chunks):
+            checksum = calculate_checksum(data)
+            
+            # Pre-create the mapping entry with an empty ports list
+            mapping[name] = {
+                "ports": [],
+                "checksum": checksum
+            }
 
-    for i, (name, data) in enumerate(chunks):
-        assigned_nodes = []
-        checksum = calculate_checksum(data)
+            for r in range(actual_rf):
+                node_port = active_nodes[(i + r) % len(active_nodes)]
+                
+                # NEW FIX: A strictly verified upload task
+                def verified_upload_task(port, chunk_name, chunk_data):
+                    res = send_to_node(port, chunk_name, chunk_data)
+                    # ONLY append the port to the metadata if the transfer was 100% successful
+                    if res:
+                        mapping[chunk_name]["ports"].append(port)
+                        
+                # Dispatch the task
+                futures.append(executor.submit(verified_upload_task, node_port, name, data))
+                
+        # Block until all concurrent threads finish (or fail)
+        concurrent.futures.wait(futures)
 
-        # Use the dynamically calculated actual_rf instead of the global variable
-        for r in range(actual_rf):
-            node_port = active_nodes[(i + r) % len(active_nodes)]
-            send_to_node(node_port, name, data)
-            assigned_nodes.append(node_port)
+    print("✅ PARALLEL INGESTION COMPLETE.")
 
-        mapping[name] = {
-            "ports": assigned_nodes,
-            "checksum": checksum
-        }
-
+    # Tell the Master to update the global metadata directory
     request = {
         "type": "upload",
         "filename": os.path.basename(filepath),
@@ -129,10 +140,12 @@ def upload_file(filepath):
 def get_chunk_from_node(port, chunk_name):
     try:
         s = socket.socket()
-        s.settimeout(5)
+        s.settimeout(30)
         s.connect(('127.0.0.1', port))
         
-        s.sendall(f"GET:::{chunk_name}".encode())
+        # FIX: Pad the GET header to exactly 50 bytes so the Node doesn't drop it
+        header = f"GET:::{chunk_name:<44}".encode()
+        s.sendall(header)
         s.shutdown(socket.SHUT_WR) # <--- CRITICAL FIX for download deadlock
 
         data = b""

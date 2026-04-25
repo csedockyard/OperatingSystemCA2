@@ -16,19 +16,28 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 print(f"📁 Storage initialized at {STORAGE_DIR}")
 
 def handle_client(conn):
-    data = conn.recv(4096)
-    command = data[:6].decode()
+    full_data = b""
+    while True:
+        packet = conn.recv(4096)
+        if not packet:
+            break 
+        full_data += packet
+
+    command = full_data[:6].decode(errors="ignore")
 
     if command == "STORE:":
-        filename = data[6:50].decode().strip()
-        content = data[50:]
+        filename = full_data[6:50].decode(errors="ignore").strip()
+        content = full_data[50:] 
+
         with open(STORAGE_DIR + filename, "wb") as f:
             f.write(content)
-        conn.send(b"STORED")
+
+        conn.sendall(b"STORED")
 
     elif command == "GET:::":
-        filename = data[6:].decode().strip()
+        filename = full_data[6:].decode(errors="ignore").strip()
         filepath = STORAGE_DIR + filename
+
         if os.path.exists(filepath):
             with open(filepath, "rb") as f:
                 while True:
@@ -37,7 +46,8 @@ def handle_client(conn):
                        break
                    conn.sendall(chunk)
         else:
-            conn.send(b"NOTFOUND")
+            conn.sendall(b"NOTFOUND")
+
     conn.close()
 
 def background_scrubber():
@@ -83,8 +93,10 @@ def send_heartbeat():
                     "node": PORT
                 }
 
-                s.send(json.dumps(msg).encode())
+                s.sendall(json.dumps(msg).encode())
+                s.shutdown(socket.SHUT_WR) # Safe close
                 s.close()
+                
                 print(f"[NODE {PORT}] heartbeat sent to Port {port}")
                 success = True
                 break 
@@ -94,7 +106,7 @@ def send_heartbeat():
         if not success:
             print(f"[NODE {PORT}] ❌ heartbeat failed (Masters down)")
 
-        time.sleep(4) # AI Trigger: Deliberately slow heartbeat!
+        time.sleep(4) 
 
 if __name__ == "__main__":
     start_node()
