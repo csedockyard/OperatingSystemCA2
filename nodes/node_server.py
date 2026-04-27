@@ -23,20 +23,25 @@ def handle_client(conn):
             break 
         full_data += packet
 
+    if not full_data:   # 🔧 (1) safety check
+        conn.close()
+        return
+
     command = full_data[:6].decode(errors="ignore")
 
     if command == "STORE:":
         filename = full_data[6:50].decode(errors="ignore").strip()
         content = full_data[50:] 
 
-        with open(STORAGE_DIR + filename, "wb") as f:
+        filepath = os.path.join(STORAGE_DIR, filename)   # 🔧 (2)
+        with open(filepath, "wb") as f:                  # 🔧 (3)
             f.write(content)
 
         conn.sendall(b"STORED")
 
     elif command == "GET:::":
         filename = full_data[6:].decode(errors="ignore").strip()
-        filepath = STORAGE_DIR + filename
+        filepath = os.path.join(STORAGE_DIR, filename)   # 🔧 (4)
 
         if os.path.exists(filepath):
             with open(filepath, "rb") as f:
@@ -58,6 +63,7 @@ def background_scrubber():
                 print(f"[NODE {PORT}] 🧹 Scrubbing {len(files)} chunks for bit-rot...")
                 for filename in files:
                     filepath = os.path.join(STORAGE_DIR, filename)
+                    if not os.path.isfile(filepath): continue   # 🔧 (5)
                     with open(filepath, "rb") as f:
                         data = f.read()
                         current_hash = hashlib.sha256(data).hexdigest()
@@ -68,8 +74,9 @@ def background_scrubber():
 
 def start_node():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # 🔧 (6)
     server.bind((HOST, PORT))
-    server.listen()
+    server.listen(5)   # 🔧 (7)
 
     print(f"[NODE {PORT}] Running...")
     threading.Thread(target=send_heartbeat, daemon=True).start()
@@ -77,7 +84,7 @@ def start_node():
 
     while True:
         conn, _ = server.accept()
-        threading.Thread(target=handle_client, args=(conn,)).start()
+        threading.Thread(target=handle_client, args=(conn,), daemon=True).start()  # 🔧 (8)
 
 def send_heartbeat():
     while True:
@@ -100,7 +107,8 @@ def send_heartbeat():
                 print(f"[NODE {PORT}] heartbeat sent to Port {port}")
                 success = True
                 break 
-            except:
+            except Exception as e:   # 🔧 (9)
+                print(f"[NODE {PORT}] retry {port}: {e}")  # 🔧 (10)
                 continue
 
         if not success:
